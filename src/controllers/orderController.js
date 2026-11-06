@@ -1,4 +1,5 @@
 const Order = require('../models/order');
+const helpers = require('../utils/helpers');
 
 const orderController = {
 
@@ -32,24 +33,21 @@ const orderController = {
     // POST create new order
     createOrder: (req, res) => {
         try {
-            // BUG #20: No input validation at all — customerName, items, address could be undefined/empty
-            const { customerName, items, shippingAddress } = req.body;
+            if (!helpers.validateOrderData(req.body)) {
+                return res.status(400).json({
+                    error: 'customerName, non-empty items, and shippingAddress are required'
+                });
+            }
 
-            // BUG #21: req.body will be undefined because bodyParser.json() was never added
-            const newOrder = Order.create({
-                customerName,
-                items,
-                shippingAddress
-            });
+            const newOrder = Order.create(req.body);
 
-            // BUG #22: Returns 200 instead of 201 for resource creation
-            res.status(200).json({
+            return res.status(201).json({
                 message: 'Order created successfully',
                 order: newOrder
             });
         } catch (error) {
-            // BUG #23: Returns 400 for what could be a server error
-            res.status(400).json({ error: error.message });
+            console.error('Failed to create order:', error);
+            return res.status(500).json({ error: 'Internal server error' });
         }
     },
 
@@ -97,32 +95,45 @@ const orderController = {
     // GET orders by status
     getOrdersByStatus: (req, res) => {
         try {
-            // BUG #27: reads `req.params.status` but the route uses query params `req.query.status`
-            const { status } = req.params;
+            const { status } = req.query;
+            const allowedStatuses = [
+                'pending',
+                'processing',
+                'shipped',
+                'delivered',
+                'cancelled'
+            ];
 
-            // BUG #28: No validation for allowed status values
+            if (typeof status !== 'string' || !allowedStatuses.includes(status)) {
+                return res.status(400).json({
+                    error: 'status must be one of: pending, processing, shipped, delivered, cancelled'
+                });
+            }
+
             const orders = Order.findByStatus(status);
 
-            res.status(200).json(orders);
+            return res.status(200).json(orders);
         } catch (error) {
-            res.status(500).json({ error: error.message });
+            console.error('Failed to retrieve orders by status:', error);
+            return res.status(500).json({ error: 'Internal server error' });
         }
     },
 
     // GET order summary/analytics
     getOrderSummary: (req, res) => {
+        void req;
+
         try {
             const orders = Order.findAll();
+            const totalRevenue = orders.reduce(
+                (sum, order) => sum + order.totalPrice,
+                0
+            );
 
-            // BUG #29: reduce has no initial value — crashes on empty array
-            const totalRevenue = orders.reduce((sum, order) => sum + order.totalPrice);
-
-            // BUG #30: `length` is called as a method instead of a property
             const summary = {
-                totalOrders: orders.length(),
-                totalRevenue: totalRevenue,
-                // BUG #31: `pending` is not in quotes — ReferenceError
-                pendingOrders: orders.filter(o => o.status === pending).length,
+                totalOrders: orders.length,
+                totalRevenue,
+                pendingOrders: orders.filter(o => o.status === 'pending').length,
                 completedOrders: orders.filter(o => o.status === 'completed').length
             };
 

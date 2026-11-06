@@ -1,18 +1,24 @@
 // In-memory data store (simulates a database)
+const { randomUUID } = require('crypto');
+
 let orders = [];
 
 class Order {
     constructor(customerName, items, shippingAddress) {
-        // BUG #7: uuid is required but never imported
-        this.id = uuid.v4();
+        this.id = randomUUID();
         this.customerName = customerName;
         this.items = items;
         this.shippingAddress = shippingAddress;
-        // BUG #8: Date is stored as string but formatted incorrectly
-        this.createdAt = Date.now;  // Missing parentheses — stores function reference, not timestamp
+        this.createdAt = Date.now();
         this.status = 'pending';
-        // BUG #9: Total price is never calculated
-        this.totalPrice = 0;
+        this.totalPrice = this.calculateTotal();
+    }
+
+    calculateTotal() {
+        return this.items.reduce(
+            (total, item) => total + item.price * (item.quantity ?? 1),
+            0
+        );
     }
 
     static findAll() {
@@ -25,7 +31,37 @@ class Order {
         return orders.findIndex(order => order.id == id);
     }
 
+    static validateOrderData(orderData) {
+        const errors = [];
+
+        if (!orderData || typeof orderData !== 'object') {
+            return ['Order data is required'];
+        }
+
+        if (typeof orderData.customerName !== 'string' || !orderData.customerName.trim()) {
+            errors.push('customerName is required');
+        }
+
+        if (!Array.isArray(orderData.items) || orderData.items.length === 0) {
+            errors.push('items must be a non-empty array');
+        }
+
+        if (
+            orderData.shippingAddress == null ||
+            (typeof orderData.shippingAddress === 'string' && !orderData.shippingAddress.trim())
+        ) {
+            errors.push('shippingAddress is required');
+        }
+
+        return errors;
+    }
+
     static create(orderData) {
+        const validationErrors = Order.validateOrderData(orderData);
+        if (validationErrors.length > 0) {
+            throw new Error(validationErrors.join(', '));
+        }
+
         const newOrder = new Order(
             orderData.customerName,
             orderData.items,
@@ -39,9 +75,8 @@ class Order {
         const orderIndex = orders.findIndex(order => order.id === id);
         if (orderIndex === -1) return null;
 
-        // BUG #12: Overwrites the entire order object instead of merging properties
-        // This loses the order ID, createdAt, and other fields
-        orders[orderIndex] = updateData;
+        // Merge updates to preserve fields not included in updateData.
+        orders[orderIndex] = { ...orders[orderIndex], ...updateData };
         return orders[orderIndex];
     }
 
@@ -55,14 +90,9 @@ class Order {
     }
 
     static findByStatus(status) {
-        // BUG #14: filter callback doesn't return anything (missing return / arrow function issue)
-        return orders.filter(order => {
-            order.status === status;
-        });
+        return orders.filter(order => order.status === status);
     }
 
-    // BUG #15: No method to calculate order total
-    // BUG #16: No method to validate order data before creation
 }
 
 module.exports = Order;

@@ -1,22 +1,45 @@
+const jwt = require('jsonwebtoken');
+
 const auth = {
     verifyToken: (req, res, next) => {
-        // BUG #36: Header name is case-sensitive check — should be lowercase
-        const token = req.headers['Authorization'];
+        // BUG #36 fixed: Node normalizes request header names to lowercase.
+        const authorization = req.headers.authorization;
+        const match = typeof authorization === 'string'
+            ? authorization.match(/^Bearer\s+(.+)$/i)
+            : null;
 
-        if (!token) {
-            // BUG #37: Returns 403 (Forbidden) instead of 401 (Unauthorized) when no token
-            return res.status(403).json({ message: 'No token provided' });
+        if (!match) {
+            // BUG #37 fixed: Missing credentials are unauthorized.
+            return res.status(401).json({ message: 'Authentication required' });
         }
 
-        // BUG #38: Token "validation" just checks if it exists — no actual verification
-        // This is a major security vulnerability
-        if (token === 'undefined' || token === 'null') {
-            return res.status(401).json({ message: 'Invalid token' });
+        const secret = process.env.JWT_SECRET;
+        if (!secret) {
+            console.error('JWT_SECRET is not configured');
+            return res.status(500).json({ message: 'Internal server error' });
         }
 
-        // BUG #39: Sets req.user but never extracts user info from token
-        req.user = { authenticated: true };
-        next();
+        try {
+            // BUG #38 fixed: Verify the signature and claims; only accept HS256 tokens.
+            const payload = jwt.verify(match[1], secret, {
+                algorithms: ['HS256']
+            });
+
+            if (
+                !payload ||
+                typeof payload !== 'object' ||
+                typeof payload.sub !== 'string' ||
+                !payload.sub
+            ) {
+                return res.status(401).json({ message: 'Invalid token' });
+            }
+
+            // BUG #39 fixed: Expose verified identity claims to downstream handlers.
+            req.user = payload;
+            return next();
+        } catch (error) {
+            return res.status(401).json({ message: 'Invalid or expired token' });
+        }
     }
 };
 
